@@ -68,7 +68,10 @@ class VideoTranslator:
         try:
             # 加载 demucs 模型
             logger.info("加载 Demucs 模型...")
-            self.separator = torch.hub.load('facebookresearch/demucs', 'demucs', device=self.device)
+            from demucs.api import Separator
+            self.separator = Separator()
+            if self.device == "cuda":
+                self.separator.to(self.device)
             logger.info("Demucs 模型加载完成")
 
             logger.info("加载 Whisper 模型...")
