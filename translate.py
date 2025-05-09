@@ -25,6 +25,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# 保存原始的torch.load函数
+original_torch_load = torch.load
+
 # 添加安全全局类
 add_safe_globals([
     XttsConfig,
@@ -47,21 +50,6 @@ class VideoTranslator:
     def __init__(self):
         logger.info("初始化 VideoTranslator...")
         
-        # 设置更安全的torch.load行为
-        def safe_load(*args, **kwargs):
-            if 'weights_only' not in kwargs:
-                kwargs['weights_only'] = False
-            if 'map_location' not in kwargs:
-                kwargs['map_location'] = torch.device('cpu')
-            try:
-                return torch.load(*args, **kwargs)
-            except Exception as e:
-                logger.error(f"模型加载失败: {str(e)}")
-                raise
-
-        # 替换默认的torch.load
-        torch.load = safe_load
-        
         try:
             logger.info("加载 Whisper 模型...")
             self.whisper_model = whisper.load_model("base")
@@ -72,11 +60,30 @@ class VideoTranslator:
             logger.info("Translator 初始化完成")
             
             logger.info("初始化 TTS 模型...")
-            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            try:
+                # 第一次尝试加载模型
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+            except Exception as e:
+                logger.warning(f"首次加载失败，尝试使用 weights_only=False: {str(e)}")
+                # 使用原始的torch.load，但添加weights_only=False参数
+                def load_with_weights(*args, **kwargs):
+                    kwargs['weights_only'] = False
+                    kwargs['map_location'] = torch.device('cpu')
+                    return original_torch_load(*args, **kwargs)
+                
+                # 临时替换torch.load
+                torch.load = load_with_weights
+                # 再次尝试加载模型
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                # 恢复原始的torch.load
+                torch.load = original_torch_load
+                
             logger.info("TTS 模型加载成功")
             
         except Exception as e:
             logger.error(f"初始化失败: {str(e)}", exc_info=True)
+            # 确保恢复原始的torch.load
+            torch.load = original_torch_load
             raise
 
 
