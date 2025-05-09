@@ -56,27 +56,39 @@ class VideoTranslator:
     def __init__(self):
         logger.info("初始化 VideoTranslator...")
         
+        # 添加设备检测
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"使用设备: {self.device}")
+        
+        try:
+            logger.info("加载 Whisper 模型...")
+            self.whisper_model = whisper.load_model("base").to(self.device)
+            logger.info("Whisper 模型加载完成")
+            
+            logger.info("初始化 Translator...")
             self.translator = googletrans.Translator()
             logger.info("Translator 初始化完成")
             
             logger.info("初始化 TTS 模型...")
             try:
                 # 第一次尝试加载模型
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                if self.device == "cuda":
+                    self.tts.to(self.device)
             except Exception as e:
                 logger.warning(f"首次加载失败，尝试使用 weights_only=False: {str(e)}")
                 # 使用原始的torch.load，但添加weights_only=False参数
                 def load_with_weights(*args, **kwargs):
                     kwargs['weights_only'] = False
-                    kwargs['map_location'] = torch.device('cpu')
+                    kwargs['map_location'] = torch.device(self.device)
                     return original_torch_load(*args, **kwargs)
                 
                 # 临时替换torch.load
                 torch.load = load_with_weights
                 # 再次尝试加载模型
-                device = "cuda" if torch.cuda.is_available() else "cpu"
-                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                if self.device == "cuda":
+                    self.tts.to(self.device)
                 # 恢复原始的torch.load
                 torch.load = original_torch_load
                 
@@ -87,7 +99,6 @@ class VideoTranslator:
             # 确保恢复原始的torch.load
             torch.load = original_torch_load
             raise
-
 
     def extract_audio(self, video_path):
         logger.info(f"开始从视频提取音频: {video_path}")
