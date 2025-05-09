@@ -1,4 +1,3 @@
-import logging
 import os
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 from transformers import pipeline
@@ -9,9 +8,20 @@ import googletrans
 from pydub import AudioSegment
 import numpy as np
 from torch.serialization import add_safe_globals
+
+# 导入所有可能需要的配置类
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.configs.xtts_config import XttsAudioConfig
-import time
+from TTS.config.shared_configs import BaseDatasetConfig
+from TTS.tts.configs.shared_configs import BaseTTSConfig
+from TTS.tts.configs.shared_configs import BaseDatasetConfig as TTSBaseDatasetConfig
+from TTS.config.shared_configs import BaseAudioConfig
+from TTS.encoder.configs.base_encoder_config import BaseEncoderConfig
+from TTS.vocoder.configs.base_vocoder_config import BaseVocoderConfig
+from TTS.vocoder.configs.hifigan_config import HifiganConfig
+from TTS.tts.models.xtts import Xtts
+from TTS.utils.audio import AudioProcessor
+import logging
 
 # 配置日志
 logging.basicConfig(
@@ -20,32 +30,66 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 添加安全全局类
-add_safe_globals([XttsConfig, XttsAudioConfig])
+# 添加所有可能需要的安全全局类
+add_safe_globals([
+    XttsConfig,
+    XttsAudioConfig,
+    BaseDatasetConfig,
+    BaseTTSConfig,
+    TTSBaseDatasetConfig,
+    BaseAudioConfig,
+    BaseEncoderConfig,
+    BaseVocoderConfig,
+    HifiganConfig,
+    Xtts,
+    AudioProcessor,
+    # 添加相关的数据类型
+    dict, 
+    list,
+    tuple,
+    str,
+    int,
+    float,
+    bool,
+    type(None)
+])
 
 class VideoTranslator:
     def __init__(self):
         logger.info("初始化 VideoTranslator...")
         
-        logger.info("加载 Whisper 模型...")
-        self.whisper_model = whisper.load_model("base")
-        logger.info("Whisper 模型加载完成")
+        # 设置更安全的torch.load行为
+        def safe_load(*args, **kwargs):
+            if 'weights_only' not in kwargs:
+                kwargs['weights_only'] = False
+            if 'map_location' not in kwargs:
+                kwargs['map_location'] = torch.device('cpu')
+            try:
+                return torch.load(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"模型加载失败: {str(e)}")
+                raise
+
+        # 替换默认的torch.load
+        torch.load = safe_load
         
-        logger.info("初始化 Translator...")
-        self.translator = googletrans.Translator()
-        logger.info("Translator 初始化完成")
-        
-        logger.info("初始化 TTS 模型...")
         try:
+            logger.info("加载 Whisper 模型...")
+            self.whisper_model = whisper.load_model("base")
+            logger.info("Whisper 模型加载完成")
+            
+            logger.info("初始化 Translator...")
+            self.translator = googletrans.Translator()
+            logger.info("Translator 初始化完成")
+            
+            logger.info("初始化 TTS 模型...")
             self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
             logger.info("TTS 模型加载成功")
+            
         except Exception as e:
-            logger.warning(f"TTS 模型首次加载失败，尝试使用 weights_only=False: {str(e)}")
-            torch.load = lambda f, *args, **kwargs: torch.load(f, *args, **kwargs, weights_only=False)
-            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
-            logger.info("TTS 模型使用 weights_only=False 加载成功")
-        
-        logger.info("VideoTranslator 初始化完成")
+            logger.error(f"初始化失败: {str(e)}", exc_info=True)
+            raise
+
 
     def extract_audio(self, video_path):
         logger.info(f"开始从视频提取音频: {video_path}")
