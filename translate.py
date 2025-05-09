@@ -56,18 +56,6 @@ class VideoTranslator:
     def __init__(self):
         logger.info("初始化 VideoTranslator...")
         
-            # 添加设备检测
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"使用设备: {self.device}")
-
-        try:
-            logger.info("加载 Whisper 模型...")
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            self.whisper_model = whisper.load_model("base").to(device)
-            
-            logger.info("Whisper 模型加载完成")
-            
-            logger.info("初始化 Translator...")
             self.translator = googletrans.Translator()
             logger.info("Translator 初始化完成")
             
@@ -136,16 +124,20 @@ class VideoTranslator:
         logger.info(f"生成克隆声音，文本长度: {len(text)}")
         start_time = time.time()
         
-        self.tts.tts_to_file(
-            text=text,
-            speaker_wav=speaker_wav,
-            language="pt",
-            file_path=output_path,
-            gpu=self.device == "cuda"  # 添加GPU支持
-        )
-        
-        duration = time.time() - start_time
-        logger.info(f"声音克隆完成，输出到: {output_path}，用时: {duration:.2f}秒")
+        try:
+            # 移除 gpu 参数，使用 model.to(device) 来代替
+            self.tts.tts_to_file(
+                text=text,
+                speaker_wav=speaker_wav,
+                language="pt",
+                file_path=output_path
+            )
+            
+            duration = time.time() - start_time
+            logger.info(f"声音克隆完成，输出到: {output_path}，用时: {duration:.2f}秒")
+        except Exception as e:
+            logger.error(f"生成声音克隆时出错: {str(e)}")
+            raise
 
     def create_subtitle_clip(self, text, start_time, end_time):
         """
@@ -209,6 +201,10 @@ class VideoTranslator:
     def process_video(self, input_video_path):
         """处理视频的主方法"""
         try:
+             # 如果使用 GPU，先清理缓存
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
+
             total_start_time = time.time()
             logger.info(f"开始处理视频: {input_video_path}")
             
@@ -293,9 +289,13 @@ class VideoTranslator:
             total_duration = time.time() - total_start_time
             logger.info(f"视频处理完成！总用时: {total_duration:.2f}秒")
             logger.info(f"输出文件: {output_path}")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
             
         except Exception as e:
             logger.error(f"处理视频时出错: {str(e)}")
+            if self.device == "cuda":
+                torch.cuda.empty_cache()
             raise
         
     #  def cleanup_temp_files(self, audio_path, audio_segments):
