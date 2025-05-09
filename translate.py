@@ -1,4 +1,7 @@
 import os
+import time
+import glob  # 用于文件模式匹配
+import sys   # 用于系统相关操作
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 from transformers import pipeline
 import torch
@@ -14,6 +17,8 @@ from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.configs.xtts_config import XttsAudioConfig
 from TTS.config.shared_configs import BaseDatasetConfig
 from TTS.tts.configs.shared_configs import BaseTTSConfig
+from TTS.tts.models.xtts import XttsArgs  # 这个之前漏掉了
+from tqdm import tqdm  # 用于显示进度条
 from TTS.utils.audio import AudioProcessor
 
 import logging
@@ -35,6 +40,7 @@ add_safe_globals([
     BaseDatasetConfig,
     BaseTTSConfig,
     AudioProcessor,
+    XttsArgs,
     # 基本数据类型
     dict, 
     list,
