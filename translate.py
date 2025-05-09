@@ -9,18 +9,13 @@ from pydub import AudioSegment
 import numpy as np
 from torch.serialization import add_safe_globals
 
-# 导入所有可能需要的配置类
+# 导入必要的配置类
 from TTS.tts.configs.xtts_config import XttsConfig
 from TTS.tts.configs.xtts_config import XttsAudioConfig
 from TTS.config.shared_configs import BaseDatasetConfig
 from TTS.tts.configs.shared_configs import BaseTTSConfig
-from TTS.tts.configs.shared_configs import BaseDatasetConfig as TTSBaseDatasetConfig
-from TTS.config.shared_configs import BaseAudioConfig
-from TTS.encoder.configs.base_encoder_config import BaseEncoderConfig
-from TTS.vocoder.configs.base_vocoder_config import BaseVocoderConfig
-from TTS.vocoder.configs.hifigan_config import HifiganConfig
-from TTS.tts.models.xtts import Xtts
 from TTS.utils.audio import AudioProcessor
+
 import logging
 
 # 配置日志
@@ -30,20 +25,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# 添加所有可能需要的安全全局类
+# 添加安全全局类
 add_safe_globals([
     XttsConfig,
     XttsAudioConfig,
     BaseDatasetConfig,
     BaseTTSConfig,
-    TTSBaseDatasetConfig,
-    BaseAudioConfig,
-    BaseEncoderConfig,
-    BaseVocoderConfig,
-    HifiganConfig,
-    Xtts,
     AudioProcessor,
-    # 添加相关的数据类型
+    # 基本数据类型
     dict, 
     list,
     tuple,
