@@ -289,28 +289,28 @@ class VideoTranslator:
             logger.error(f"处理视频时出错: {str(e)}")
             raise
         
-     def cleanup_temp_files(self, audio_path, audio_segments):
-        """清理临时文件"""
-        try:
-            logger.info("清理临时文件...")
-            files_to_remove = [
-                audio_path,
-                "final_audio.wav"
-            ]
+    #  def cleanup_temp_files(self, audio_path, audio_segments):
+    #     """清理临时文件"""
+    #     try:
+    #         logger.info("清理临时文件...")
+    #         files_to_remove = [
+    #             audio_path,
+    #             "final_audio.wav"
+    #         ]
             
-            # 添加临时音频片段文件
-            for segment in audio_segments:
-                files_to_remove.append(segment["path"])
+    #         # 添加临时音频片段文件
+    #         for segment in audio_segments:
+    #             files_to_remove.append(segment["path"])
             
-            # 删除文件
-            for file_path in files_to_remove:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                    logger.debug(f"已删除: {file_path}")
+    #         # 删除文件
+    #         for file_path in files_to_remove:
+    #             if os.path.exists(file_path):
+    #                 os.remove(file_path)
+    #                 logger.debug(f"已删除: {file_path}")
                     
-            logger.info("临时文件清理完成")
-        except Exception as e:
-            logger.warning(f"清理临时文件时出现错误: {str(e)}")
+    #         logger.info("临时文件清理完成")
+    #     except Exception as e:
+    #         logger.warning(f"清理临时文件时出现错误: {str(e)}")
 
 
 if __name__ == "__main__":
