@@ -108,45 +108,56 @@ class VideoTranslator:
             # 确保恢复原始的torch.load
             torch.load = original_torch_load
             raise
-
-    def separate_audio(self, input_path):
-        """使用 demucs 进行音频分离"""
-        logger.info(f"开始分离音频: {input_path}")
+        
+    def separate_audio(self, audio_path):
+        """使用 demucs 进行人声分离"""
+        logger.info(f"开始进行人声分离: {audio_path}")
         
         try:
-            # 创建输出目录
             output_dir = Path("separated")
             output_dir.mkdir(exist_ok=True)
             
-            # 构建命令行参数列表
+            # 使用 MDX-Net 模型，它对中文语音分离效果较好
             args = [
-                str(input_path),
-                "-n", "htdemucs",  # 使用 htdemucs 模型
-                "--two-stems", "vocals",  # 只分离人声
-                "--shifts", "2",  # 设置移位次数
-                "--segment", "10",  # 使用 --segment 替代 --split
+                str(audio_path),
+                "-n", "mdx_extra",  # 使用 MDX-Net 模型
+                "--two-stems", "vocals",
+                "--shifts", "2",
+                "--segment", "7",
                 "--device", self.device,
-                "--overlap", "0.25",  # 重叠率
-                "--jobs", "2",  # 并行作业数
-                "--out", str(output_dir)  # 指定输出目录
+                "--overlap", "0.25",
+                "--jobs", "2",
+                "--out", str(output_dir)
             ]
             
-            # 执行分离
+            logger.info("执行人声分离...")
             demucs.separate.main(args)
             
-            # 获取输出文件路径
-            track_name = Path(input_path).stem
-            vocals_path = output_dir / "htdemucs" / track_name / "vocals.wav"
+            track_name = Path(audio_path).stem
+            vocals_path = output_dir / "mdx_extra" / track_name / "vocals.wav"
             
             if not vocals_path.exists():
                 raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
             
-            logger.info(f"音频分离完成，输出文件: {vocals_path}")
-            return str(vocals_path)
-        
+            # 音频标准化处理
+            logger.info("正在标准化音频...")
+            audio = AudioSegment.from_wav(str(vocals_path))
+            
+            # 标准化音量
+            target_dBFS = -20.0
+            change_in_dBFS = target_dBFS - audio.dBFS
+            audio = audio.apply_gain(change_in_dBFS)
+            
+            processed_path = "temp/processed_vocals.wav"
+            audio.export(processed_path, format="wav")
+            
+            logger.info(f"人声分离完成，输出文件: {processed_path}")
+            return processed_path
+            
         except Exception as e:
-            logger.error(f"音频分离失败: {str(e)}")
-            return input_path
+            logger.error(f"人声分离失败: {str(e)}")
+            logger.info("使用原始音频继续处理...")
+            return audio_path
 
     def cleanup_temp_files(self):
         """清理所有临时文件和目录"""
@@ -211,41 +222,7 @@ class VideoTranslator:
         logger.info(f"音频提取完成，用时: {duration:.2f}秒")
         return audio_path
 
-    def separate_vocals(self, audio_path):
-        """
-        使用 Demucs 进行人声分离
-        """
-        logger.info("开始进行人声分离...")
-        try:
-            # 创建输出目录
-            output_dir = Path("separated")
-            output_dir.mkdir(exist_ok=True)
-            
-            # 使用 demucs 进行分离
-            command = [
-                "demucs",
-                "--two-stems=vocals",  # 只分离人声
-                "-n", "demucs_quantized",  # 使用量化模型
-                "--device", self.device,
-                audio_path
-            ]
-            
-            logger.info("执行人声分离命令...")
-            subprocess.run(command, check=True)
-            
-            # 获取输出文件路径
-            track_name = Path(audio_path).stem
-            vocals_path = output_dir / "demucs_quantized" / track_name / "vocals.wav"
-            
-            if not vocals_path.exists():
-                raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
-            
-            logger.info(f"人声分离完成，输出文件: {vocals_path}")
-            return str(vocals_path)
-            
-        except Exception as e:
-            logger.error(f"人声分离失败: {str(e)}")
-            return audio_path  # 如果分离失败，返回原始音频
+   
 
     def process_audio(self, audio_path):
         """
