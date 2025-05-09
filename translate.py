@@ -56,6 +56,10 @@ class VideoTranslator:
     def __init__(self):
         logger.info("初始化 VideoTranslator...")
         
+            # 添加设备检测
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"使用设备: {self.device}")
+
         try:
             logger.info("加载 Whisper 模型...")
             device = "cuda" if torch.cuda.is_available() else "cpu"
