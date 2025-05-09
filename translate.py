@@ -110,6 +110,56 @@ class VideoTranslator:
             torch.load = original_torch_load
             raise
 
+    def cleanup_temp_files(self):
+        """清理所有临时文件和目录"""
+        try:
+            logger.info("开始清理临时文件...")
+            
+            # 需要清理的临时文件模式
+            temp_patterns = [
+                "temp_audio*.wav",
+                "processed_audio.wav",
+                "final_audio.wav",
+                "*.mp3",
+                "*.wav"
+            ]
+            
+            # 需要清理的临时目录
+            temp_dirs = [
+                "separated",
+                "demucs_quantized",
+                "__pycache__"
+            ]
+            
+            # 清理临时文件
+            files_removed = 0
+            for pattern in temp_patterns:
+                for file_path in glob.glob(pattern):
+                    try:
+                        os.remove(file_path)
+                        files_removed += 1
+                        logger.debug(f"已删除文件: {file_path}")
+                    except Exception as e:
+                        logger.warning(f"删除文件 {file_path} 失败: {str(e)}")
+            
+            # 清理临时目录
+            dirs_removed = 0
+            for dir_name in temp_dirs:
+                dir_path = Path(dir_name)
+                if dir_path.exists():
+                    try:
+                        import shutil
+                        shutil.rmtree(dir_path)
+                        dirs_removed += 1
+                        logger.debug(f"已删除目录: {dir_path}")
+                    except Exception as e:
+                        logger.warning(f"删除目录 {dir_path} 失败: {str(e)}")
+            
+            logger.info(f"清理完成: 删除了 {files_removed} 个文件和 {dirs_removed} 个目录")
+        
+    except Exception as e:
+        logger.error(f"清理临时文件时出错: {str(e)}")
+
     def extract_audio(self, video_path):
         logger.info(f"开始从视频提取音频: {video_path}")
         start_time = time.time()
@@ -348,12 +398,18 @@ class VideoTranslator:
     def process_video(self, input_video_path):
         """处理视频的主方法"""
         try:
-             # 如果使用 GPU，先清理缓存
+            # 处理前先清理临时文件
+            self.cleanup_temp_files()
+            
+            # 如果使用 GPU，先清理缓存
             if self.device == "cuda":
                 torch.cuda.empty_cache()
 
             total_start_time = time.time()
             logger.info(f"开始处理视频: {input_video_path}")
+            
+            # 创建临时目录
+            os.makedirs("temp", exist_ok=True)
             
             # 1. 提取音频
             audio_path = self.extract_audio(input_video_path)
@@ -377,7 +433,7 @@ class VideoTranslator:
                 })
                 
                 # 生成新的语音
-                temp_audio_path = f"temp_audio_{i}.wav"
+                temp_audio_path = os.path.join("temp", f"temp_audio_{i}.wav")
                 self.generate_voice_clone(
                     translated_text,
                     audio_path,
@@ -413,15 +469,19 @@ class VideoTranslator:
                     position=int(segment["start"] * 1000)
                 )
             
-            final_audio.export("final_audio.wav", format="wav")
+            final_audio_path = os.path.join("temp", "final_audio.wav")
+            final_audio.export(final_audio_path, format="wav")
             
             logger.info("创建最终视频...")
             final_video = CompositeVideoClip([
-                video.set_audio(AudioFileClip("final_audio.wav")),
+                video.set_audio(AudioFileClip(final_audio_path)),
                 *subtitle_clips
             ])
 
-            output_path = "translated_video.mp4"
+            # 确保输出目录存在
+            os.makedirs("output", exist_ok=True)
+            output_path = os.path.join("output", f"translated_{os.path.basename(input_video_path)}")
+            
             logger.info(f"导出最终视频到: {output_path}")
             final_video.write_videofile(
                 output_path,
@@ -430,49 +490,46 @@ class VideoTranslator:
                 audio_codec="aac"
             )
 
-            # 清理临时文件
-            # self.cleanup_temp_files(audio_path, new_audio_segments)
-            
+            # 清理资源
+            video.close()
+            if hasattr(final_video, 'close'):
+                final_video.close()
+
             total_duration = time.time() - total_start_time
             logger.info(f"视频处理完成！总用时: {total_duration:.2f}秒")
             logger.info(f"输出文件: {output_path}")
+            
+            # 处理完成后清理临时文件
+            self.cleanup_temp_files()
+            
             if self.device == "cuda":
                 torch.cuda.empty_cache()
-            
+                
         except Exception as e:
             logger.error(f"处理视频时出错: {str(e)}")
             if self.device == "cuda":
                 torch.cuda.empty_cache()
+            # 发生错误时也清理临时文件
+            self.cleanup_temp_files()
             raise
-        
-    #  def cleanup_temp_files(self, audio_path, audio_segments):
-    #     """清理临时文件"""
-    #     try:
-    #         logger.info("清理临时文件...")
-    #         files_to_remove = [
-    #             audio_path,
-    #             "final_audio.wav"
-    #         ]
-            
-    #         # 添加临时音频片段文件
-    #         for segment in audio_segments:
-    #             files_to_remove.append(segment["path"])
-            
-    #         # 删除文件
-    #         for file_path in files_to_remove:
-    #             if os.path.exists(file_path):
-    #                 os.remove(file_path)
-    #                 logger.debug(f"已删除: {file_path}")
-                    
-    #         logger.info("临时文件清理完成")
-    #     except Exception as e:
-    #         logger.warning(f"清理临时文件时出现错误: {str(e)}")
-
 
 if __name__ == "__main__":
     try:
+        # 设置输出目录
+        os.makedirs("output", exist_ok=True)
+        
         translator = VideoTranslator()
         input_video_path = "video-translate/demo-teste.mp4"
+        
+        # 检查输入文件是否存在
+        if not os.path.exists(input_video_path):
+            raise FileNotFoundError(f"输入视频文件不存在: {input_video_path}")
+            
         translator.process_video(input_video_path)
+        
     except Exception as e:
         logger.error(f"处理过程中出现错误: {str(e)}", exc_info=True)
+    finally:
+        # 确保程序退出时清理临时文件
+        if 'translator' in locals():
+            translator.cleanup_temp_files()
