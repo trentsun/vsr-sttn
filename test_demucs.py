@@ -1,3 +1,5 @@
+import logging
+
 def test_dependencies():
     """测试所需依赖是否正确安装"""
     dependencies = {
