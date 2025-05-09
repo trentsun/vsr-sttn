@@ -26,6 +26,8 @@ import subprocess
 import torch.hub
 from pathlib import Path
 
+import demucs.separate
+
 
 import logging
 
@@ -65,67 +67,6 @@ class VideoTranslator:
         # 添加设备检测
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"使用设备: {self.device}")
-        
-        from demucs.pretrained import get_model
-        from demucs.apply import apply_model
-
-
-        
-        def separate_audio(self, input_path):
-            """使用 demucs 进行音频分离"""
-            logger.info(f"开始分离音频: {input_path}")
-            
-            try:
-                # 创建输出目录
-                output_dir = Path("separated")
-                output_dir.mkdir(exist_ok=True)
-                
-                # 加载模型
-                model = get_model('htdemucs')
-                model.to(self.device)
-                
-                # 加载音频
-                wav, sr = torchaudio.load(input_path)
-                wav = wav.to(self.device)
-                
-                # 如果需要，重采样到模型所需的采样率
-                if sr != model.samplerate:
-                    wav = torchaudio.transforms.Resample(sr, model.samplerate)(wav)
-                
-                # 应用模型
-                ref = wav.mean(0)
-                wav = (wav - ref.mean()) / ref.std()
-                sources = apply_model(model, wav.unsqueeze(0), shifts=2, split=True, overlap=0.25, progress=True)[0]
-                
-                # 获取人声部分
-                vocals = sources[model.sources.index('vocals')]
-                
-                # 还原音量
-                vocals = vocals * ref.std() + ref.mean()
-                
-                # 保存结果
-                track_name = Path(input_path).stem
-                vocals_path = output_dir / "htdemucs" / track_name / "vocals.wav"
-                vocals_path.parent.mkdir(parents=True, exist_ok=True)
-                
-                torchaudio.save(
-                    str(vocals_path),
-                    vocals.cpu(),
-                    model.samplerate
-                )
-                
-                logger.info(f"音频分离完成，输出文件: {vocals_path}")
-                return str(vocals_path)
-                
-            except Exception as e:
-                logger.error(f"音频分离失败: {str(e)}")
-                return input_path
-            finally:
-                # 清理 GPU 内存
-                if self.device == "cuda":
-                    torch.cuda.empty_cache()
-        
-        self.separate_audio = separate_audio
 
         try:
 
@@ -167,6 +108,45 @@ class VideoTranslator:
             # 确保恢复原始的torch.load
             torch.load = original_torch_load
             raise
+
+    def separate_audio(self, input_path):
+        """使用 demucs 进行音频分离"""
+        logger.info(f"开始分离音频: {input_path}")
+        
+        try:
+            # 创建输出目录
+            output_dir = Path("separated")
+            output_dir.mkdir(exist_ok=True)
+            
+            # 构建命令行参数列表
+            args = [
+                str(input_path),
+                "-n", "htdemucs",  # 使用 htdemucs 模型
+                "--two-stems", "vocals",  # 只分离人声
+                "--shifts", "2",  # 设置移位次数
+                "--segment", "10",  # 使用 --segment 替代 --split
+                "--device", self.device,
+                "--overlap", "0.25",  # 重叠率
+                "--jobs", "2",  # 并行作业数
+                "--out", str(output_dir)  # 指定输出目录
+            ]
+            
+            # 执行分离
+            demucs.separate.main(args)
+            
+            # 获取输出文件路径
+            track_name = Path(input_path).stem
+            vocals_path = output_dir / "htdemucs" / track_name / "vocals.wav"
+            
+            if not vocals_path.exists():
+                raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
+            
+            logger.info(f"音频分离完成，输出文件: {vocals_path}")
+            return str(vocals_path)
+        
+        except Exception as e:
+            logger.error(f"音频分离失败: {str(e)}")
+            return input_path
 
     def cleanup_temp_files(self):
         """清理所有临时文件和目录"""
