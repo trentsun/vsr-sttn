@@ -71,7 +71,7 @@ class VideoTranslator:
         try:
 
             logger.info("加载 Whisper 模型...")
-            self.whisper_model = whisper.load_model("large").to(self.device)
+            self.whisper_model = whisper.load_model("large-v2").to(self.device)
             logger.info("Whisper 模型加载完成")
             
             logger.info("初始化 Translator...")
@@ -261,7 +261,7 @@ class VideoTranslator:
             # 使用 Whisper 进行转录
             result = self.whisper_model.transcribe(
                 processed_audio,
-                language="pt",  # 指定源语言
+                language="zh",  # 指定源语言
                 task="transcribe",
                 temperature=0.2,  # 降低随机性
                 best_of=5,  # 生成多个候选结果并选择最佳
