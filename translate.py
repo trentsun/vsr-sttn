@@ -8,7 +8,15 @@ import googletrans
 from pydub import AudioSegment
 import numpy as np
 from torch.serialization import add_safe_globals
+# 在代码开头添加
 from TTS.tts.configs.xtts_config import XttsConfig
+from TTS.tts.configs.xtts_config import XttsAudioConfig
+from torch.serialization import add_safe_globals
+
+# 添加安全全局类
+add_safe_globals([XttsConfig, XttsAudioConfig])
+
+
 
 class VideoTranslator:
     def __init__(self):
