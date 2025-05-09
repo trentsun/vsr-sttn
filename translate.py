@@ -58,7 +58,9 @@ class VideoTranslator:
         
         try:
             logger.info("加载 Whisper 模型...")
-            self.whisper_model = whisper.load_model("base")
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            self.whisper_model = whisper.load_model("base").to(device)
+            
             logger.info("Whisper 模型加载完成")
             
             logger.info("初始化 Translator...")
@@ -68,7 +70,8 @@ class VideoTranslator:
             logger.info("初始化 TTS 模型...")
             try:
                 # 第一次尝试加载模型
-                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
             except Exception as e:
                 logger.warning(f"首次加载失败，尝试使用 weights_only=False: {str(e)}")
                 # 使用原始的torch.load，但添加weights_only=False参数
@@ -80,7 +83,8 @@ class VideoTranslator:
                 # 临时替换torch.load
                 torch.load = load_with_weights
                 # 再次尝试加载模型
-                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
                 # 恢复原始的torch.load
                 torch.load = original_torch_load
                 
@@ -132,7 +136,8 @@ class VideoTranslator:
             text=text,
             speaker_wav=speaker_wav,
             language="pt",
-            file_path=output_path
+            file_path=output_path,
+            gpu=self.device == "cuda"  # 添加GPU支持
         )
         
         duration = time.time() - start_time
