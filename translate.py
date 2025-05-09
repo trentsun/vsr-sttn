@@ -5,6 +5,7 @@ import sys   # 用于系统相关操作
 from moviepy.editor import VideoFileClip, AudioFileClip, TextClip, CompositeVideoClip
 from transformers import pipeline
 import torch
+import torchaudio
 from TTS.api import TTS
 import whisper
 import googletrans
@@ -67,8 +68,7 @@ class VideoTranslator:
         
         from demucs.pretrained import get_model
         from demucs.apply import apply_model
-        import torch
-        import torchaudio
+
 
         
         def separate_audio(self, input_path):
