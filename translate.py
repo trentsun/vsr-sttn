@@ -156,9 +156,8 @@ class VideoTranslator:
                         logger.warning(f"删除目录 {dir_path} 失败: {str(e)}")
             
             logger.info(f"清理完成: 删除了 {files_removed} 个文件和 {dirs_removed} 个目录")
-        
-    except Exception as e:
-        logger.error(f"清理临时文件时出错: {str(e)}")
+        except Exception as e:
+            logger.error(f"清理临时文件时出错: {str(e)}")
 
     def extract_audio(self, video_path):
         logger.info(f"开始从视频提取音频: {video_path}")
