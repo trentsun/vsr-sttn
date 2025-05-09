@@ -65,14 +65,52 @@ class VideoTranslator:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"使用设备: {self.device}")
         
+        import demucs.separate
+        
+        def separate_audio(input_path):
+            """使用 demucs 进行音频分离"""
+            logger.info(f"开始分离音频: {input_path}")
+            
+            # 创建输出目录
+            output_dir = Path("separated")
+            output_dir.mkdir(exist_ok=True)
+            
+            # 设置分离参数
+            options = {
+                "model": "htdemucs",  # 使用默认模型
+                "two_stems": "vocals",  # 只分离人声
+                "shifts": 2,  # 设置移位次数
+                "split": True,  # 启用分段处理
+                "device": self.device,
+                "overlap": 0.25,  # 重叠率
+                "jobs": 2,  # 并行作业数
+                "mp3": False,  # 输出wav格式
+            }
+            
+            try:
+                # 执行分离
+                demucs.separate.main(
+                    [input_path],
+                    **options
+                )
+                
+                # 获取输出文件路径
+                track_name = Path(input_path).stem
+                vocals_path = output_dir / "htdemucs" / track_name / "vocals.wav"
+                
+                if not vocals_path.exists():
+                    raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
+                
+                logger.info(f"音频分离完成，输出文件: {vocals_path}")
+                return str(vocals_path)
+                
+            except Exception as e:
+                logger.error(f"音频分离失败: {str(e)}")
+                return input_path
+        
+        self.separate_audio = separate_audio
+
         try:
-            # 加载 demucs 模型
-            logger.info("加载 Demucs 模型...")
-            from demucs.api import Separator
-            self.separator = Separator()
-            if self.device == "cuda":
-                self.separator.to(self.device)
-            logger.info("Demucs 模型加载完成")
 
             logger.info("加载 Whisper 模型...")
             self.whisper_model = whisper.load_model("large").to(self.device)
