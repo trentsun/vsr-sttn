@@ -256,7 +256,7 @@ class VideoTranslator:
         """
         try:
             # 1. 人声分离
-            vocals_path = self.separate_vocals(audio_path)
+            vocals_path = self.separate_audio(audio_path)
             
             # 2. 音频标准化
             audio = AudioSegment.from_wav(vocals_path)
