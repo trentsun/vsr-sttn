@@ -7,14 +7,25 @@ import whisper
 import googletrans
 from pydub import AudioSegment
 import numpy as np
+from torch.serialization import add_safe_globals
+from TTS.tts.configs.xtts_config import XttsConfig
 
 class VideoTranslator:
     def __init__(self):
         # 初始化必要的模型和工具
         self.whisper_model = whisper.load_model("base")
         self.translator = googletrans.Translator()
+        
+        # 添加XttsConfig到安全全局类列表
+        add_safe_globals([XttsConfig])
+        
         # 初始化TTS模型
-        self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+        try:
+            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
+        except Exception as e:
+            # 如果上述方法失败，尝试使用weights_only=False的方式
+            torch.load = lambda f, *args, **kwargs: torch.load(f, *args, **kwargs, weights_only=False)
+            self.tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2")
         
     def extract_audio(self, video_path):
         """从视频中提取音频"""
