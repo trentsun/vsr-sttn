@@ -50,7 +50,7 @@ class AudioSeparationTest:
         return test_audio_path
 
     def separate_audio(self, input_path):
-        """音频分离方法"""
+        """使用 demucs 进行音频分离"""
         logger.info(f"开始分离音频: {input_path}")
         
         try:
@@ -61,14 +61,14 @@ class AudioSeparationTest:
             # 构建命令行参数列表
             args = [
                 str(input_path),
-                "-n", "htdemucs",
-                "--two-stems", "vocals",
-                "--shifts", "2",
-                "--split",
+                "-n", "htdemucs",  # 使用 htdemucs 模型
+                "--two-stems", "vocals",  # 只分离人声
+                "--shifts", "2",  # 设置移位次数
+                "--segment", "10",  # 使用 --segment 替代 --split
                 "--device", self.device,
-                "--overlap", "0.25",
-                "--jobs", "2",
-                "--out", str(output_dir)
+                "--overlap", "0.25",  # 重叠率
+                "--jobs", "2",  # 并行作业数
+                "--out", str(output_dir)  # 指定输出目录
             ]
             
             # 执行分离
@@ -83,10 +83,10 @@ class AudioSeparationTest:
             
             logger.info(f"音频分离完成，输出文件: {vocals_path}")
             return str(vocals_path)
-            
+        
         except Exception as e:
             logger.error(f"音频分离失败: {str(e)}")
-            return str(input_path)
+            return input_path
 
     def verify_output(self, output_path):
         """验证输出文件"""
