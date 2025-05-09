@@ -1,167 +1,191 @@
+import os
 import logging
+from pathlib import Path
+import torch
+import demucs.separate
+import soundfile as sf
+import numpy as np
+import shutil
+import time
 
-def test_dependencies():
-    """测试所需依赖是否正确安装"""
-    dependencies = {
-        'torch': 'PyTorch',
-        'torchaudio': 'TorchAudio',
-        'demucs': 'Demucs',
-        'numpy': 'NumPy',
-        'pathlib': 'PathLib',
-        'logging': 'Logging'
-    }
-    
-    missing_deps = []
-    installed_versions = {}
-    
-    for module, name in dependencies.items():
-        try:
-            imported_module = __import__(module)
-            version = getattr(imported_module, '__version__', 'Unknown version')
-            installed_versions[name] = version
-        except ImportError:
-            missing_deps.append(name)
-    
-    return installed_versions, missing_deps
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
-def test_cuda_availability():
-    """测试 CUDA 是否可用"""
-    try:
-        import torch
-        cuda_available = torch.cuda.is_available()
-        if cuda_available:
-            device_count = torch.cuda.device_count()
-            device_name = torch.cuda.get_device_name(0) if device_count > 0 else "Unknown"
-            return True, {
-                "device_count": device_count,
-                "device_name": device_name,
-                "cuda_version": torch.version.cuda
-            }
-        return False, None
-    except Exception as e:
-        return False, str(e)
-
-def create_test_audio():
-    """创建测试用的音频文件"""
-    try:
-        import numpy as np
-        import soundfile as sf
+class AudioSeparationTest:
+    def __init__(self):
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.test_dir = Path("test_audio")
+        self.test_dir.mkdir(exist_ok=True)
         
-        # 创建一个简单的音频信号（3秒，44.1kHz采样率）
+    def create_test_audio(self, duration=3.0):
+        """创建测试音频文件"""
+        logger.info("创建测试音频文件...")
+        
+        # 生成测试音频
         sample_rate = 44100
-        duration = 3.0
         t = np.linspace(0, duration, int(sample_rate * duration))
         
-        # 生成一个包含人声频率范围的信号
-        voice_freq = 200  # 典型人声基频
-        audio_signal = np.sin(2 * np.pi * voice_freq * t)
+        # 创建一个包含人声和音乐的混合信号
+        voice_freq = 200  # 人声频率
+        music_freq = 1000  # 音乐频率
         
-        # 添加一些噪声
-        noise = np.random.normal(0, 0.1, len(t))
-        audio_signal = audio_signal + noise
+        voice = 0.5 * np.sin(2 * np.pi * voice_freq * t)
+        music = 0.3 * np.sin(2 * np.pi * music_freq * t)
         
-        # 标准化音频
-        audio_signal = audio_signal / np.max(np.abs(audio_signal))
+        # 混合信号
+        mixed = voice + music
         
-        # 保存测试音频文件
-        test_file = "test_audio.wav"
-        sf.write(test_file, audio_signal, sample_rate)
+        # 标准化
+        mixed = mixed / np.max(np.abs(mixed))
         
-        return True, test_file
-    except Exception as e:
-        return False, str(e)
+        # 保存文件
+        test_audio_path = self.test_dir / "test_mixed.wav"
+        sf.write(test_audio_path, mixed, sample_rate)
+        
+        logger.info(f"测试音频创建完成: {test_audio_path}")
+        return test_audio_path
 
-def test_audio_separation(audio_file):
-    """测试音频分离功能"""
+    def separate_audio(self, input_path):
+        """音频分离方法"""
+        logger.info(f"开始分离音频: {input_path}")
+        
+        try:
+            # 创建输出目录
+            output_dir = Path("separated")
+            output_dir.mkdir(exist_ok=True)
+            
+            # 构建命令行参数列表
+            args = [
+                str(input_path),
+                "-n", "htdemucs",
+                "--two-stems", "vocals",
+                "--shifts", "2",
+                "--split",
+                "--device", self.device,
+                "--overlap", "0.25",
+                "--jobs", "2",
+                "--out", str(output_dir)
+            ]
+            
+            # 执行分离
+            demucs.separate.main(args)
+            
+            # 获取输出文件路径
+            track_name = Path(input_path).stem
+            vocals_path = output_dir / "htdemucs" / track_name / "vocals.wav"
+            
+            if not vocals_path.exists():
+                raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
+            
+            logger.info(f"音频分离完成，输出文件: {vocals_path}")
+            return str(vocals_path)
+            
+        except Exception as e:
+            logger.error(f"音频分离失败: {str(e)}")
+            return str(input_path)
+
+    def verify_output(self, output_path):
+        """验证输出文件"""
+        output_path = Path(output_path)
+        if not output_path.exists():
+            return False, "输出文件不存在"
+            
+        try:
+            # 检查音频文件是否可读
+            audio_data, sample_rate = sf.read(output_path)
+            
+            # 基本检查
+            checks = {
+                "文件存在": output_path.exists(),
+                "文件大小": output_path.stat().st_size > 0,
+                "采样率": sample_rate == 44100,
+                "音频长度": len(audio_data) > 0
+            }
+            
+            return True, checks
+            
+        except Exception as e:
+            return False, f"验证失败: {str(e)}"
+
+    def cleanup(self):
+        """清理测试文件"""
+        try:
+            if self.test_dir.exists():
+                shutil.rmtree(self.test_dir)
+            if Path("separated").exists():
+                shutil.rmtree("separated")
+            logger.info("清理完成")
+        except Exception as e:
+            logger.error(f"清理失败: {str(e)}")
+
+def main():
+    """主测试函数"""
+    test = AudioSeparationTest()
+    
     try:
-        from pathlib import Path
-        import time
+        # 1. 检查环境
+        logger.info("\n=== 环境检查 ===")
+        logger.info(f"使用设备: {test.device}")
+        logger.info(f"PyTorch 版本: {torch.__version__}")
+        logger.info(f"CUDA 是否可用: {torch.cuda.is_available()}")
+        if torch.cuda.is_available():
+            logger.info(f"CUDA 设备: {torch.cuda.get_device_name(0)}")
         
+        # 2. 创建测试音频
+        logger.info("\n=== 创建测试音频 ===")
+        test_audio_path = test.create_test_audio()
+        
+        # 3. 执行音频分离
+        logger.info("\n=== 执行音频分离 ===")
         start_time = time.time()
+        output_path = test.separate_audio(test_audio_path)
+        processing_time = time.time() - start_time
+        logger.info(f"处理时间: {processing_time:.2f} 秒")
         
-        # 初始化 VideoTranslator
-        translator = VideoTranslator()
+        # 4. 验证结果
+        logger.info("\n=== 验证结果 ===")
+        success, result = test.verify_output(output_path)
+        if success:
+            logger.info("验证通过:")
+            for check_name, check_result in result.items():
+                logger.info(f"- {check_name}: {check_result}")
+        else:
+            logger.error(f"验证失败: {result}")
         
-        # 执行音频分离
-        result_path = translator.separate_audio(audio_file)
+        # 5. 性能指标
+        logger.info("\n=== 性能指标 ===")
+        if torch.cuda.is_available():
+            logger.info(f"GPU 内存使用: {torch.cuda.max_memory_allocated() / 1024**2:.2f} MB")
         
-        duration = time.time() - start_time
+        return success
         
-        # 检查结果
-        result = {
-            "success": Path(result_path).exists(),
-            "input_path": audio_file,
-            "output_path": result_path,
-            "duration": f"{duration:.2f} seconds"
-        }
-        
-        return True, result
     except Exception as e:
-        return False, str(e)
+        logger.error(f"测试过程中出错: {str(e)}", exc_info=True)
+        return False
+        
+    finally:
+        # 6. 清理
+        logger.info("\n=== 清理测试文件 ===")
+        test.cleanup()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
 if __name__ == "__main__":
-    # 设置日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
-    )
-    logger = logging.getLogger(__name__)
-    
-    logger.info("开始依赖检查和功能测试...")
-    
-    # 1. 检查依赖
-    logger.info("\n=== 检查依赖 ===")
-    installed_versions, missing_deps = test_dependencies()
-    
-    if missing_deps:
-        logger.error(f"缺少以下依赖: {', '.join(missing_deps)}")
-        logger.error("请使用 pip install 安装缺少的依赖")
-    else:
-        logger.info("已安装的依赖版本:")
-        for name, version in installed_versions.items():
-            logger.info(f"- {name}: {version}")
-    
-    # 2. 检查 CUDA
-    logger.info("\n=== 检查 CUDA ===")
-    cuda_available, cuda_info = test_cuda_availability()
-    if cuda_available:
-        logger.info("CUDA 可用:")
-        for key, value in cuda_info.items():
-            logger.info(f"- {key}: {value}")
-    else:
-        logger.warning(f"CUDA 不可用: {cuda_info}")
-    
-    # 3. 创建测试音频
-    logger.info("\n=== 创建测试音频 ===")
-    audio_created, audio_result = create_test_audio()
-    if audio_created:
-        logger.info(f"测试音频创建成功: {audio_result}")
-    else:
-        logger.error(f"创建测试音频失败: {audio_result}")
-        sys.exit(1)
-    
-    # 4. 测试音频分离
-    logger.info("\n=== 测试音频分离 ===")
-    separation_success, separation_result = test_audio_separation(audio_result)
-    if separation_success:
-        logger.info("音频分离测试结果:")
-        for key, value in separation_result.items():
-            logger.info(f"- {key}: {value}")
-    else:
-        logger.error(f"音频分离测试失败: {separation_result}")
-    
-    # 5. 清理测试文件
-    logger.info("\n=== 清理测试文件 ===")
     try:
-        import os
-        if os.path.exists(audio_result):
-            os.remove(audio_result)
-        if separation_success:
-            output_path = separation_result.get("output_path")
-            if output_path and os.path.exists(output_path):
-                os.remove(output_path)
-        logger.info("测试文件清理完成")
+        success = main()
+        if success:
+            logger.info("\n=== 测试完成：通过 ===")
+            exit(0)
+        else:
+            logger.error("\n=== 测试完成：失败 ===")
+            exit(1)
+    except KeyboardInterrupt:
+        logger.info("\n=== 测试被用户中断 ===")
+        exit(2)
     except Exception as e:
-        logger.warning(f"清理测试文件时出错: {e}")
-    
-    logger.info("\n=== 测试完成 ===")
+        logger.error(f"\n=== 测试异常: {str(e)} ===")
+        exit(3)
