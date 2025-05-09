@@ -21,6 +21,11 @@ from TTS.tts.models.xtts import XttsArgs  # 这个之前漏掉了
 from tqdm import tqdm  # 用于显示进度条
 from TTS.utils.audio import AudioProcessor
 
+import subprocess
+import torch.hub
+from pathlib import Path
+
+
 import logging
 
 # 配置日志
@@ -61,8 +66,13 @@ class VideoTranslator:
         logger.info(f"使用设备: {self.device}")
         
         try:
+            # 加载 demucs 模型
+            logger.info("加载 Demucs 模型...")
+            self.separator = torch.hub.load('facebookresearch/demucs', 'demucs', device=self.device)
+            logger.info("Demucs 模型加载完成")
+
             logger.info("加载 Whisper 模型...")
-            self.whisper_model = whisper.load_model("base").to(self.device)
+            self.whisper_model = whisper.load_model("large").to(self.device)
             logger.info("Whisper 模型加载完成")
             
             logger.info("初始化 Translator...")
@@ -114,16 +124,142 @@ class VideoTranslator:
         logger.info(f"音频提取完成，用时: {duration:.2f}秒")
         return audio_path
 
+    def separate_vocals(self, audio_path):
+        """
+        使用 Demucs 进行人声分离
+        """
+        logger.info("开始进行人声分离...")
+        try:
+            # 创建输出目录
+            output_dir = Path("separated")
+            output_dir.mkdir(exist_ok=True)
+            
+            # 使用 demucs 进行分离
+            command = [
+                "demucs",
+                "--two-stems=vocals",  # 只分离人声
+                "-n", "demucs_quantized",  # 使用量化模型
+                "--device", self.device,
+                audio_path
+            ]
+            
+            logger.info("执行人声分离命令...")
+            subprocess.run(command, check=True)
+            
+            # 获取输出文件路径
+            track_name = Path(audio_path).stem
+            vocals_path = output_dir / "demucs_quantized" / track_name / "vocals.wav"
+            
+            if not vocals_path.exists():
+                raise FileNotFoundError(f"人声文件未找到: {vocals_path}")
+            
+            logger.info(f"人声分离完成，输出文件: {vocals_path}")
+            return str(vocals_path)
+            
+        except Exception as e:
+            logger.error(f"人声分离失败: {str(e)}")
+            return audio_path  # 如果分离失败，返回原始音频
+
+    def process_audio(self, audio_path):
+        """
+        音频预处理
+        """
+        try:
+            # 1. 人声分离
+            vocals_path = self.separate_vocals(audio_path)
+            
+            # 2. 音频标准化
+            audio = AudioSegment.from_wav(vocals_path)
+            
+            # 标准化音量
+            target_dBFS = -20.0
+            change_in_dBFS = target_dBFS - audio.dBFS
+            audio = audio.apply_gain(change_in_dBFS)
+            
+            # 导出处理后的音频
+            processed_path = "processed_audio.wav"
+            audio.export(processed_path, format="wav")
+            
+            return processed_path
+            
+        except Exception as e:
+            logger.error(f"音频处理失败: {str(e)}")
+            return audio_path
+
     def transcribe_audio(self, audio_path):
         logger.info("开始音频转录...")
         start_time = time.time()
         
-        result = self.whisper_model.transcribe(audio_path)
-        segments = result["segments"]
+        try:
+            # 处理音频
+            processed_audio = self.process_audio(audio_path)
+            
+            # 使用 Whisper 进行转录
+            result = self.whisper_model.transcribe(
+                processed_audio,
+                language="pt",  # 指定源语言
+                task="transcribe",
+                temperature=0.2,  # 降低随机性
+                best_of=5,  # 生成多个候选结果并选择最佳
+                beam_size=5,  # 使用波束搜索
+                word_timestamps=True,  # 获取词级时间戳
+                condition_on_previous_text=True,  # 考虑上下文
+                initial_prompt="这是一段对话视频",  # 提供上下文提示
+            )
+            
+            segments = result["segments"]
+            
+            # 后处理结果
+            processed_segments = self.post_process_segments(segments)
+            
+            duration = time.time() - start_time
+            logger.info(f"音频转录完成，识别出 {len(processed_segments)} 个片段，用时: {duration:.2f}秒")
+            return processed_segments
+            
+        except Exception as e:
+            logger.error(f"转录失败: {str(e)}")
+            raise
+
+    def post_process_segments(self, segments):
+        """对识别结果进行后处理"""
+        processed_segments = []
         
-        duration = time.time() - start_time
-        logger.info(f"音频转录完成，识别出 {len(segments)} 个片段，用时: {duration:.2f}秒")
-        return segments
+        for i, segment in enumerate(segments):
+            text = segment["text"]
+            
+            # 1. 清理文本
+            text = text.strip()
+            
+            # 2. 移除重复内容
+            if i > 0 and text in processed_segments[-1]["text"]:
+                continue
+                
+            # 3. 合并短句
+            if i > 0 and len(text) < 10:  # 如果当前段落很短
+                if len(processed_segments) > 0:
+                    # 将短句与前一个段落合并
+                    prev_segment = processed_segments[-1]
+                    prev_segment["text"] += " " + text
+                    prev_segment["end"] = segment["end"]
+                    continue
+            
+            # 4. 标点符号修正
+            text = self.fix_punctuation(text)
+            
+            # 5. 更新段落信息
+            segment["text"] = text
+            processed_segments.append(segment)
+        
+        return processed_segments
+
+    def fix_punctuation(self, text):
+        """修正标点符号"""
+        import re
+        # 基本的标点符号修正
+        text = re.sub(r'\s+([.,!?])', r'\1', text)  # 移除标点前的空格
+        text = re.sub(r'([.,!?])\s+', r'\1 ', text)  # 确保标点后有空格
+        text = text.replace('..', '.')  # 修正重复的句号
+        return text
 
     def translate_text(self, text, target_lang='pt'):
         logger.info(f"翻译文本: {text[:50]}...")
