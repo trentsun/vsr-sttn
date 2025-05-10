@@ -256,7 +256,13 @@ class VideoTranslator:
         
         try:
             # 处理音频
+            logger.info("开始音频预处理...")
             processed_audio = self.process_audio(audio_path)
+            logger.info("音频预处理完成")
+            
+            # 记录转录开始时间
+            transcribe_start = time.time()
+            logger.info("开始使用 Whisper 进行转录...")
             
             # 使用 Whisper 进行转录
             result = self.whisper_model.transcribe(
@@ -268,20 +274,46 @@ class VideoTranslator:
                 beam_size=5,  # 使用波束搜索
                 word_timestamps=True,  # 获取词级时间戳
                 condition_on_previous_text=True,  # 考虑上下文
-                initial_prompt="这是一段对话视频",  # 提供上下文提示
+                initial_prompt="这是一段中文对话",  # 提供上下文提示
             )
             
+            # 记录转录完成时间
+            transcribe_duration = time.time() - transcribe_start
+            logger.info(f"Whisper 转录完成，用时: {transcribe_duration:.2f}秒")
+            
             segments = result["segments"]
+            logger.info(f"原始识别片段数量: {len(segments)}")
+            
+            # 详细记录每个片段的信息
+            for i, segment in enumerate(segments):
+                logger.info(f"片段 {i+1}/{len(segments)}:")
+                logger.info(f"  时间范围: {segment['start']:.2f}s - {segment['end']:.2f}s")
+                logger.info(f"  文本内容: {segment['text']}")
+                if 'confidence' in segment:
+                    logger.info(f"  置信度: {segment['confidence']:.2f}")
             
             # 后处理结果
+            logger.info("开始后处理识别结果...")
             processed_segments = self.post_process_segments(segments)
+            logger.info(f"后处理完成，处理后片段数量: {len(processed_segments)}")
             
-            duration = time.time() - start_time
-            logger.info(f"音频转录完成，识别出 {len(processed_segments)} 个片段，用时: {duration:.2f}秒")
+            # 记录后处理后的片段信息
+            for i, segment in enumerate(processed_segments):
+                logger.info(f"处理后片段 {i+1}/{len(processed_segments)}:")
+                logger.info(f"  时间范围: {segment['start']:.2f}s - {segment['end']:.2f}s")
+                logger.info(f"  处理后文本: {segment['text']}")
+            
+            # 计算总用时
+            total_duration = time.time() - start_time
+            logger.info(f"音频转录全部完成:")
+            logger.info(f"  总用时: {total_duration:.2f}秒")
+            logger.info(f"  平均每个片段处理时间: {total_duration/len(processed_segments):.2f}秒")
+            logger.info(f"  总文本长度: {sum(len(s['text']) for s in processed_segments)} 字符")
+            
             return processed_segments
-            
+                
         except Exception as e:
-            logger.error(f"转录失败: {str(e)}")
+            logger.error(f"转录失败: {str(e)}", exc_info=True)
             raise
 
     def post_process_segments(self, segments):
