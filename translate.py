@@ -384,62 +384,66 @@ class VideoTranslator:
 
     def create_subtitle_clip(self, text, start_time, end_time):
         """
-        创建字幕片段
-        
-        参数:
-            text (str): 字幕文本
-            start_time (float): 开始时间（秒）
-            end_time (float): 结束时间（秒）
-            
-        返回:
-            TextClip: 字幕片段
+        创建字幕片段，带有错误处理和备选方案
         """
         try:
             logger.info(f"创建字幕片段: {text[:30]}...")
             
-            # 字幕样式配置
-            config = {
-                'fontsize': 30,
-                'font': 'Arial',  # 或者使用 'Noto Sans CJK SC' 支持中文
-                'color': 'white',
-                'bg_color': 'rgba(0,0,0,0.7)',
-                'size': (720, None),  # 宽度固定，高度自适应
-                'method': 'caption',
-                'align': 'center',
-                'stroke_color': 'black',
-                'stroke_width': 1
-            }
-            
-            # 创建文本片段
-            txt_clip = TextClip(
-                text,
-                **config
-            )
-            
+            # 首先尝试使用默认配置
+            try:
+                txt_clip = TextClip(
+                    text,
+                    fontsize=30,
+                    font='Arial',
+                    color='white',
+                    bg_color='rgba(0,0,0,0.7)',
+                    size=(720, None),
+                    method='caption',
+                    align='center'
+                )
+            except Exception as e:
+                logger.warning(f"使用默认配置创建字幕失败，尝试备选方案: {str(e)}")
+                # 备选方案：使用更简单的配置
+                txt_clip = TextClip(
+                    text,
+                    fontsize=30,
+                    font='Arial',
+                    color='white',
+                    bg_color='black',
+                    method='label',
+                    size=(720, None)
+                )
+
             duration = end_time - start_time
-            fade_duration = min(0.5, duration / 4)  # 淡入淡出时间
-            
-            # 设置位置、持续时间和特效
+            fade_duration = min(0.5, duration / 4)
+
+            # 设置位置和时间
             final_clip = (txt_clip
-                         .set_position(('center', 'bottom'))
-                         .set_duration(duration)
-                         .set_start(start_time)
-                         .crossfadein(fade_duration)
-                         .crossfadeout(fade_duration))
-            
+                        .set_position(('center', 'bottom'))
+                        .set_duration(duration)
+                        .set_start(start_time))
+
+            # 尝试添加淡入淡出效果
+            try:
+                final_clip = final_clip.crossfadein(fade_duration).crossfadeout(fade_duration)
+            except Exception as e:
+                logger.warning(f"添加淡入淡出效果失败: {str(e)}")
+
             logger.info(f"字幕片段创建成功，持续时间: {duration:.2f}秒")
             return final_clip
-            
+
         except Exception as e:
             logger.error(f"创建字幕时出错: {str(e)}")
-            # 创建一个简单的后备字幕
-            return TextClip(
-                text,
-                fontsize=30,
-                color='white',
-                bg_color='rgba(0,0,0,0.5)',
-                size=(720, 50)
-            ).set_duration(end_time - start_time).set_start(start_time)
+            # 最后的备选方案：创建最简单的字幕
+            try:
+                return (TextClip(text, fontsize=30, color='white')
+                    .set_position(('center', 'bottom'))
+                    .set_duration(end_time - start_time)
+                    .set_start(start_time))
+            except Exception as final_e:
+                logger.error(f"备选方案也失败了: {str(final_e)}")
+                # 如果所有尝试都失败，返回 None
+                return None
 
     def process_video(self, input_video_path):
         """处理视频的主方法"""
