@@ -9,8 +9,10 @@ from data_processing import _to_tensors
 
 class STTNInpaint:
     def __init__(self):
+        # 检查 GPU 是否可用
         self.device = torch.device(DEVICE)
-
+        if torch.cuda.is_available():
+            torch.backends.cudnn.benchmark = True  # 添加这行来优化性能
         try:
             self.model = InpaintGenerator().to(self.device)
             self.model.load_state_dict(torch.load(MODEL_PATH, map_location=self.device)['netG'])
